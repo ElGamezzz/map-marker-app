@@ -7,14 +7,14 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { 
-            font-family: system-ui, -apple-system, sans-serif; 
-            display: flex; 
-            height: 100vh; 
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            display: flex;
+            height: 100vh;
             overflow: hidden;
         }
         #map { flex: 1; height: 100%; }
-        
+
         /* Panel lateral derecho */
         #sidebar {
             width: 320px;
@@ -26,7 +26,7 @@
             overflow-y: auto;
             box-shadow: -2px 0 8px rgba(0,0,0,0.05);
         }
-        
+
         #sidebar h2 {
             font-size: 1.2rem;
             color: #333;
@@ -34,7 +34,7 @@
             padding-bottom: 12px;
             border-bottom: 2px solid #0078d4;
         }
-        
+
         #empty-msg {
             color: #6c757d;
             font-style: italic;
@@ -42,13 +42,13 @@
             padding: 20px 10px;
             display: none;
         }
-        
+
         #markers-list {
             display: flex;
             flex-direction: column;
             gap: 12px;
         }
-        
+
         .marker-item {
             background: white;
             border: 1px solid #dee2e6;
@@ -61,19 +61,19 @@
             transform: translateY(-2px);
             box-shadow: 0 4px 12px rgba(0,0,0,0.08);
         }
-        
+
         .marker-name {
             font-weight: 600;
             color: #212529;
             margin-bottom: 8px;
             word-break: break-word;
         }
-        
+
         .marker-actions {
             display: flex;
             gap: 8px;
         }
-        
+
         .btn {
             flex: 1;
             padding: 6px 12px;
@@ -89,13 +89,13 @@
         .btn-delete { background: #dc3545; color: white; }
         .btn-delete:hover { background: #c82333; }
         .btn:disabled { background: #adb5bd; cursor: not-allowed; }
-        
+
         /* Popup form styles */
         .popup-form { display: flex; flex-direction: column; gap: 8px; min-width: 200px; }
         .popup-form input { padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
         .popup-form button { padding: 8px; background: #0078d4; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 500; }
         .popup-form button:hover { background: #005a9e; }
-        
+
         /* Responsive */
         @media (max-width: 768px) {
             body { flex-direction: column; }
@@ -106,7 +106,7 @@
 </head>
 <body>
     <div id="map"></div>
-    
+
     <aside id="sidebar">
         <h2>Estos son tus marcadores</h2>
         <p id="empty-msg">Aún no hay marcadores guardados.<br>Haz clic en el mapa para añadir uno.</p>
@@ -131,13 +131,13 @@
             const list = document.getElementById('markers-list');
             const emptyMsg = document.getElementById('empty-msg');
             list.innerHTML = '';
-            
+
             if (markers.length === 0) {
                 emptyMsg.style.display = 'block';
                 return;
             }
             emptyMsg.style.display = 'none';
-            
+
             markers.forEach(m => {
                 const item = document.createElement('div');
                 item.className = 'marker-item';
@@ -164,11 +164,11 @@
             try {
                 const res = await fetch(API_URL);
                 const data = await res.json();
-                
+
                 // Limpiar marcadores previos del mapa
                 Object.values(markersMap).forEach(m => map.removeLayer(m));
                 markersMap = {};
-                
+
                 // Pintar en mapa y preparar para sidebar
                 data.forEach(m => {
                     const marker = L.marker([m.latitud, m.longitud])
@@ -176,10 +176,10 @@
                         .bindPopup(`<b>${escapeHtml(m.nombre)}</b>`);
                     markersMap[m.id] = marker;
                 });
-                
+
                 renderSidebar(data);
             } catch (err) {
-                console.error('Error cargando marcadores:', err);
+
             }
         }
 
@@ -213,7 +213,7 @@
                         });
                         if (!res.ok) throw new Error('Error del servidor');
                         const guardado = await res.json();
-                        
+
                         // Añadir al mapa y actualizar sidebar
                         const marker = L.marker([guardado.latitud, guardado.longitud])
                             .addTo(map)
@@ -222,7 +222,7 @@
                         map.closePopup();
                         cargarMarcadores(); // Refresca lista y mapa
                     } catch (err) {
-                        console.error(err);
+
                         alert(' No se pudo guardar');
                     } finally {
                         btn.disabled = false; btn.textContent = 'Guardar';
@@ -238,8 +238,8 @@
             const btn = e.target.closest('button');
             if (!btn) return;
             const id = btn.dataset.id;
-            
-            // 👁️ Botón VER
+
+            // Botón VER
             if (btn.classList.contains('btn-view')) {
                 const marker = markersMap[id];
                 if (marker) {
@@ -248,22 +248,22 @@
                 }
                 return;
             }
-            
+
             // Botón ELIMINAR (doble confirmación)
             if (btn.classList.contains('btn-delete')) {
                 const nombre = btn.closest('.marker-item').querySelector('.marker-name').textContent;
-                
+
                 // Primera confirmación
                 if (!confirm(`¿Eliminar el marcador "${nombre}"?`)) return;
-                
+
                 // Segunda confirmación (más explícita)
                 if (!confirm(` ¿Estás seguro? Esta acción no se puede deshacer.\n\nMarcador: "${nombre}"`)) return;
-                
+
                 btn.disabled = true; btn.textContent = 'Eliminando...';
                 try {
                     const res = await fetch(`${API_URL}/${id}`, { method: 'DELETE' });
                     if (!res.ok) throw new Error('Error al eliminar');
-                    
+
                     // Remover del mapa y refrescar lista
                     if (markersMap[id]) {
                         map.removeLayer(markersMap[id]);
@@ -271,7 +271,7 @@
                     }
                     cargarMarcadores();
                 } catch (err) {
-                    console.error(err);
+
                     alert(' No se pudo eliminar');
                 } finally {
                     btn.disabled = false; btn.textContent = 'Eliminar';
@@ -279,7 +279,7 @@
             }
         });
 
-        //  Inicialización: carga datos al montar la página.
+        // Inicialización: carga datos al montar la página.
         cargarMarcadores();
     </script>
 </body>
