@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mapa de Marcadores</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { 
+            font-family: system-ui, -apple-system, sans-serif; 
+            display: flex; 
+            height: 100vh; 
+            overflow: hidden;
+        }
+        #map { flex: 1; height: 100%; }
+        
+        /* Panel lateral derecho */
+        #sidebar {
+            width: 320px;
+            background: #f8f9fa;
+            border-left: 1px solid #dee2e6;
+            display: flex;
+            flex-direction: column;
+            padding: 16px;
+            overflow-y: auto;
+            box-shadow: -2px 0 8px rgba(0,0,0,0.05);
+        }
+        
+        #sidebar h2 {
+            font-size: 1.2rem;
+            color: #333;
+            margin-bottom: 8px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #0078d4;
+        }
+        
+        #empty-msg {
+            color: #6c757d;
+            font-style: italic;
+            text-align: center;
+            padding: 20px 10px;
+            display: none;
+        }
+        
+        #markers-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        
+        .marker-item {
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 12px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.03);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .marker-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+        
+        .marker-name {
+            font-weight: 600;
+            color: #212529;
+            margin-bottom: 8px;
+            word-break: break-word;
+        }
+        
+        .marker-actions {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .btn {
+            flex: 1;
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-view { background: #0078d4; color: white; }
+        .btn-view:hover { background: #005a9e; }
+        .btn-delete { background: #dc3545; color: white; }
+        .btn-delete:hover { background: #c82333; }
+        .btn:disabled { background: #adb5bd; cursor: not-allowed; }
+        
+        /* Popup form styles */
+        .popup-form { display: flex; flex-direction: column; gap: 8px; min-width: 200px; }
+        .popup-form input { padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+        .popup-form button { padding: 8px; background: #0078d4; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 500; }
+        .popup-form button:hover { background: #005a9e; }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            body { flex-direction: column; }
+            #sidebar { width: 100%; height: auto; max-height: 40vh; border-left: none; border-top: 1px solid #dee2e6; }
+            #map { height: 60vh; }
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    
+    <aside id="sidebar">
+        <h2>Estos son tus marcadores</h2>
+        <p id="empty-msg">Aún no hay marcadores guardados.<br>Haz clic en el mapa para añadir uno.</p>
+        <div id="markers-list"></div>
+    </aside>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // Leaflet.js: Librería ligera de mapas open-source.
+        // Se inicializa con una vista por defecto y capa de tiles de OpenStreetMap.
+        const map = L.map('map').setView([0, 0], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
+
+        const API_URL = '/api/marcadores';
+        let markersMap = {}; // Mapa JS para mantener referencia rápida: id -> objeto Leaflet
+
+        // Renderiza la lista lateral del sidebar.
+        // Usa delegación de eventos y sanitización básica para evitar XSS.
+        function renderSidebar(markers) {
+            const list = document.getElementById('markers-list');
+            const emptyMsg = document.getElementById('empty-msg');
+            list.innerHTML = '';
+            
+            if (markers.length === 0) {
+                emptyMsg.style.display = 'block';
+                return;
+            }
+            emptyMsg.style.display = 'none';
+            
+            markers.forEach(m => {
+                const item = document.createElement('div');
+                item.className = 'marker-item';
+                item.innerHTML = `
+                    <div class="marker-name">${escapeHtml(m.nombre)}</div>
+                    <div class="marker-actions">
+                        <button class="btn btn-view" data-id="${m.id}">Ver</button>
+                        <button class="btn btn-delete" data-id="${m.id}">Eliminar</button>
+                    </div>
+                `;
+                list.appendChild(item);
+            });
+        }
+
+        // Sanitización simple de texto para inyección segura en HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Carga inicial y sincronización estado backend <> frontend.
+        async function cargarMarcadores() {
+            try {
+                const res = await fetch(API_URL);
+                const data = await res.json();
+                
+                // Limpiar marcadores previos del mapa
+                Object.values(markersMap).forEach(m => map.removeLayer(m));
+                markersMap = {};
+                
+                // Pintar en mapa y preparar para sidebar
+                data.forEach(m => {
+                    const marker = L.marker([m.latitud, m.longitud])
+                        .addTo(map)
+                        .bindPopup(`<b>${escapeHtml(m.nombre)}</b>`);
+                    markersMap[m.id] = marker;
+                });
+                
+                renderSidebar(data);
+            } catch (err) {
+                console.error('Error cargando marcadores:', err);
+            }
+        }
+
+        // Listener en el mapa: captura click -> genera popup -> envía POST via Fetch API.
+        // Usa setTimeout para esperar a que Leaflet inyecte el DOM del popup.
+        map.on('click', function(e) {
+            const { lat, lng } = e.latlng;
+            const content = `
+                <div class="popup-form">
+                    <input type="text" id="nombreInput" placeholder="Nombre del lugar" autofocus />
+                    <button id="guardarBtn">Guardar</button>
+                </div>
+            `;
+            L.popup().setLatLng(e.latlng).setContent(content).openOn(map);
+
+            setTimeout(() => {
+                const input = document.getElementById('nombreInput');
+                const btn = document.getElementById('guardarBtn');
+                if(input) input.focus();
+
+                btn.addEventListener('click', async () => {
+                    const nombre = input.value.trim();
+                    if (!nombre) { alert(' Escribe un nombre antes de guardar'); return; }
+
+                    btn.disabled = true; btn.textContent = 'Guardando...';
+                    try {
+                        const res = await fetch(API_URL, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ nombre, latitud: lat, longitud: lng })
+                        });
+                        if (!res.ok) throw new Error('Error del servidor');
+                        const guardado = await res.json();
+                        
+                        // Añadir al mapa y actualizar sidebar
+                        const marker = L.marker([guardado.latitud, guardado.longitud])
+                            .addTo(map)
+                            .bindPopup(`<b>${escapeHtml(guardado.nombre)}</b>`);
+                        markersMap[guardado.id] = marker;
+                        map.closePopup();
+                        cargarMarcadores(); // Refresca lista y mapa
+                    } catch (err) {
+                        console.error(err);
+                        alert(' No se pudo guardar');
+                    } finally {
+                        btn.disabled = false; btn.textContent = 'Guardar';
+                    }
+                });
+            }, 0);
+        });
+
+        // Delegación de eventos en el sidebar:
+        // - "Ver": usa flyTo() para transición suave y abre popup.
+        // - "Eliminar": doble confirmación nativa + DELETE al backend + actualización de UI.
+        document.getElementById('markers-list').addEventListener('click', async (e) => {
+            const btn = e.target.closest('button');
+            if (!btn) return;
+            const id = btn.dataset.id;
+            
+            // 👁️ Botón VER
+            if (btn.classList.contains('btn-view')) {
+                const marker = markersMap[id];
+                if (marker) {
+                    map.flyTo(marker.getLatLng(), 15, { duration: 1.5 });
+                    marker.openPopup();
+                }
+                return;
+            }
+            
+            // Botón ELIMINAR (doble confirmación)
+            if (btn.classList.contains('btn-delete')) {
+                const nombre = btn.closest('.marker-item').querySelector('.marker-name').textContent;
+                
+                // Primera confirmación
+                if (!confirm(`¿Eliminar el marcador "${nombre}"?`)) return;
+                
+                // Segunda confirmación (más explícita)
+                if (!confirm(` ¿Estás seguro? Esta acción no se puede deshacer.\n\nMarcador: "${nombre}"`)) return;
+                
+                btn.disabled = true; btn.textContent = 'Eliminando...';
+                try {
+                    const res = await fetch(`${API_URL}/${id}`, { method: 'DELETE' });
+                    if (!res.ok) throw new Error('Error al eliminar');
+                    
+                    // Remover del mapa y refrescar lista
+                    if (markersMap[id]) {
+                        map.removeLayer(markersMap[id]);
+                        delete markersMap[id];
+                    }
+                    cargarMarcadores();
+                } catch (err) {
+                    console.error(err);
+                    alert(' No se pudo eliminar');
+                } finally {
+                    btn.disabled = false; btn.textContent = 'Eliminar';
+                }
+            }
+        });
+
+        //  Inicialización: carga datos al montar la página.
+        cargarMarcadores();
+    </script>
+</body>
+</html>
