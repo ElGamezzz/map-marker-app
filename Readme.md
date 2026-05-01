@@ -47,4 +47,3 @@ java -jar target/map-marker-app-0.0.1-SNAPSHOT.jar
 
 ---
 Built by **José Sebastián** | [jsgamez46@gmail.com] | [[linkedin.com/in/jose-sebastian-delgado-gamez-980243394] | [github.com/ElGamezzz]
-```
